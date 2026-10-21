@@ -18,6 +18,7 @@ val enableBackupPatch = resourcePatch(
     name = "Enable backups",
     description = "Lets Android back up settings and learned words (Google backup, device transfer). " +
         "Language packs are excluded and download again after a restore.",
+    use = false,
 ) {
     compatibleWith("com.touchtype.swiftkey")
 

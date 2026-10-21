@@ -66,6 +66,7 @@ private val installAlongsideManifestPatch = resourcePatch {
 val installAlongsidePatch = bytecodePatch(
     name = "Install alongside original",
     description = "Changes the package name and app name so the patched app installs next to the Play Store version.",
+    use = false,
 ) {
     compatibleWith(ORIGINAL_PACKAGE)
 
