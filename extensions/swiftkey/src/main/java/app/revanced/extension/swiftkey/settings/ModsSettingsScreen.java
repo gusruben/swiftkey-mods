@@ -2,12 +2,12 @@ package app.revanced.extension.swiftkey.settings;
 
 import android.app.ActionBar;
 import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
-import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
-import android.view.MenuItem;
 import android.view.DisplayCutout;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,27 +24,65 @@ import java.util.Locale;
 /**
  * The "Mods" settings screen, opened from SwiftKey's home settings. Built in code with
  * platform widgets so it doesn't depend on SwiftKey's (obfuscated) settings framework.
+ * <p>
+ * It has no activity of its own (that would need a manifest entry): it takes over one SwiftKey
+ * already declares, {@link #HOST_ACTIVITY}, when started with {@link #intent}. The patch calls
+ * {@link #beforeCreate} and {@link #onCreate} from the host's onCreate.
  */
 @SuppressWarnings({"unused", "deprecation"})
-public final class ModsSettingsActivity extends Activity {
+public final class ModsSettingsScreen {
+    // A plain Activity (not AppCompat, so the platform theme works) whose own onCreate runs some
+    // setup and finishes at once. The Mods screen skips that onCreate after super.onCreate.
+    private static final String HOST_ACTIVITY = "com.touchtype.installer.none.NoInstaller";
+    private static final String EXTRA_MODS_SETTINGS = "app.revanced.swiftkey.MODS_SETTINGS";
+
+    private final Activity activity;
     private SharedPreferences preferences;
     private LinearLayout list;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    private ModsSettingsScreen(Activity activity) {
+        this.activity = activity;
+    }
+
+    /** Opens the Mods screen. Explicit, so it follows the package name of "Install alongside original". */
+    public static Intent intent(Context context) {
+        return new Intent().setClassName(context, HOST_ACTIVITY).putExtra(EXTRA_MODS_SETTINGS, true);
+    }
+
+    private static boolean isModsScreen(Activity activity) {
+        Intent intent = activity.getIntent();
+        return intent != null && intent.getBooleanExtra(EXTRA_MODS_SETTINGS, false);
+    }
+
+    /** Called first in the host's onCreate, before super.onCreate. */
+    public static void beforeCreate(Activity activity) {
+        if (!isModsScreen(activity)) return;
         // DayNight follows the system dark mode; it needs API 29.
-        setTheme(Build.VERSION.SDK_INT >= 29
+        activity.setTheme(Build.VERSION.SDK_INT >= 29
                 ? android.R.style.Theme_DeviceDefault_DayNight
                 : android.R.style.Theme_DeviceDefault_Light);
         // Our own Toolbar instead of the window's action bar: on Android 15 the window is edge to
         // edge, so the window's bar overlapped the first rows. The root takes the system bar insets.
-        requestWindowFeature(Window.FEATURE_NO_TITLE);
-        super.onCreate(savedInstanceState);
-        setTitle("Mods");
+        activity.requestWindowFeature(Window.FEATURE_NO_TITLE);
+    }
 
-        preferences = ModSettings.preferences(this);
+    /**
+     * Called right after the host's super.onCreate.
+     *
+     * @return Whether this built the Mods screen, in which case the host's own onCreate must stop.
+     */
+    public static boolean onCreate(Activity activity) {
+        if (!isModsScreen(activity)) return false;
+        new ModsSettingsScreen(activity).build();
+        return true;
+    }
 
-        list = new LinearLayout(this);
+    private void build() {
+        activity.setTitle("Mods");
+
+        preferences = ModSettings.preferences(activity);
+
+        list = new LinearLayout(activity);
         list.setOrientation(LinearLayout.VERTICAL);
         list.setPadding(0, dp(8), 0, dp(24));
 
@@ -83,12 +121,12 @@ public final class ModsSettingsActivity extends Activity {
         toggle("Debug logging", null,
                 ModSettings.DEBUG_LOGGING, ModSettings.DEBUG_LOGGING_DEFAULT);
 
-        ScrollView scroll = new ScrollView(this);
+        ScrollView scroll = new ScrollView(activity);
         scroll.setClipToPadding(false);
         scroll.addView(list);
 
-        Toolbar toolbar = new Toolbar(this);
-        LinearLayout root = new LinearLayout(this);
+        Toolbar toolbar = new Toolbar(activity);
+        LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
         root.addView(toolbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -109,27 +147,20 @@ public final class ModsSettingsActivity extends Activity {
             scroll.setPadding(0, 0, 0, bottom);
             return insets;
         });
-        setContentView(root);
-        setActionBar(toolbar);
-        ActionBar bar = getActionBar();
+        activity.setContentView(root);
+        activity.setActionBar(toolbar);
+        ActionBar bar = activity.getActionBar();
         if (bar != null) {
             bar.setTitle("Mods");
             bar.setDisplayHomeAsUpEnabled(true);
         }
+        // The host has no up handling of its own. Set after setActionBar, which sets its own listener.
+        toolbar.setNavigationOnClickListener(v -> activity.finish());
         root.requestApplyInsets();
     }
 
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        if (item.getItemId() == android.R.id.home) {
-            finish();
-            return true;
-        }
-        return super.onOptionsItemSelected(item);
-    }
-
     private void header(String title) {
-        TextView view = new TextView(this);
+        TextView view = new TextView(activity);
         view.setText(title);
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         view.setTextColor(themeColor(android.R.attr.colorAccent));
@@ -146,18 +177,18 @@ public final class ModsSettingsActivity extends Activity {
 
     /** A switch row, not yet added. Dependents are enabled only while the switch is on. */
     private View toggleRow(String title, String summary, String key, boolean fallback, View... dependents) {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(16), dp(12), dp(16), dp(12));
 
-        LinearLayout text = new LinearLayout(this);
+        LinearLayout text = new LinearLayout(activity);
         text.setOrientation(LinearLayout.VERTICAL);
         text.addView(label(title, 16, android.R.attr.textColorPrimary));
         if (summary != null) text.addView(label(summary, 14, android.R.attr.textColorSecondary));
         row.addView(text, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        Switch toggle = new Switch(this);
+        Switch toggle = new Switch(activity);
         boolean on = preferences.getBoolean(key, fallback);
         toggle.setChecked(on);
         setEnabled(on, dependents);
@@ -175,11 +206,11 @@ public final class ModsSettingsActivity extends Activity {
      */
     private View slider(String title, String key, int min, int max, int step, int fallback,
                         String format, float divisor) {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = new LinearLayout(activity);
         row.setOrientation(LinearLayout.VERTICAL);
         row.setPadding(dp(16), dp(4), dp(16), dp(12));
 
-        LinearLayout top = new LinearLayout(this);
+        LinearLayout top = new LinearLayout(activity);
         top.setOrientation(LinearLayout.HORIZONTAL);
         TextView name = label(title, 15, android.R.attr.textColorPrimary);
         top.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -187,7 +218,7 @@ public final class ModsSettingsActivity extends Activity {
         top.addView(value);
         row.addView(top);
 
-        SeekBar bar = new SeekBar(this);
+        SeekBar bar = new SeekBar(activity);
         bar.setMax((max - min) / step);
         int current = Math.max(min, Math.min(max, preferences.getInt(key, fallback)));
         bar.setProgress((current - min) / step);
@@ -232,7 +263,7 @@ public final class ModsSettingsActivity extends Activity {
     }
 
     private TextView label(String text, int sp, int colorAttr) {
-        TextView view = new TextView(this);
+        TextView view = new TextView(activity);
         view.setText(text);
         view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         view.setTextColor(themeColor(colorAttr));
@@ -241,12 +272,12 @@ public final class ModsSettingsActivity extends Activity {
 
     private int themeColor(int attr) {
         TypedValue value = new TypedValue();
-        getTheme().resolveAttribute(attr, value, true);
-        if (value.resourceId != 0) return getResources().getColor(value.resourceId, getTheme());
+        activity.getTheme().resolveAttribute(attr, value, true);
+        if (value.resourceId != 0) return activity.getResources().getColor(value.resourceId, activity.getTheme());
         return value.data;
     }
 
     private int dp(int value) {
-        return Math.round(value * getResources().getDisplayMetrics().density);
+        return Math.round(value * activity.getResources().getDisplayMetrics().density);
     }
 }

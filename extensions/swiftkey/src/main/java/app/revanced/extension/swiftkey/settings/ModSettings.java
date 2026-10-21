@@ -5,7 +5,7 @@ import android.content.SharedPreferences;
 import android.util.Log;
 
 /**
- * Settings for the mod patches, shown on the "Mods" screen ({@link ModsSettingsActivity}).
+ * Settings for the mod patches, shown on the "Mods" screen ({@link ModsSettingsScreen}).
  * Stored in device-protected storage so the keyboard can read them before the first unlock.
  * Values are cached and refreshed by a change listener, so the keyboard picks up edits live.
  */
