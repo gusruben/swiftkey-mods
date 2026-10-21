@@ -31,6 +31,7 @@ import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 import app.revanced.extension.swiftkey.settings.ModSettings;
+import app.revanced.extension.swiftkey.toolbar.ToolbarIcons;
 import app.revanced.extension.swiftkey.toolbar.ToolbarItems;
 import app.revanced.extension.swiftkey.typing.CapitalIPatch;
 import app.revanced.extension.swiftkey.twothumb.nintype.LiveSession;
@@ -158,16 +159,8 @@ public final class TwoThumbMode {
         return service == null ? null : service.getApplicationContext();
     }
 
-    private static int iconOn, iconOff;
-
     private static int icon() {
-        Context context = context();
-        if (iconOn == 0 && context != null) {
-            iconOn = context.getResources().getIdentifier("revanced_two_thumb_on", "drawable", context.getPackageName());
-            iconOff = context.getResources().getIdentifier("revanced_two_thumb_off", "drawable", context.getPackageName());
-        }
-        int icon = ModSettings.twoThumbMode() ? iconOn : iconOff;
-        return icon != 0 ? icon : android.R.drawable.ic_menu_edit;
+        return ModSettings.twoThumbMode() ? ToolbarIcons.TWO_THUMB_ON : ToolbarIcons.TWO_THUMB_OFF;
     }
 
     /** Called by ToolbarItems from the toolbar item factory. */

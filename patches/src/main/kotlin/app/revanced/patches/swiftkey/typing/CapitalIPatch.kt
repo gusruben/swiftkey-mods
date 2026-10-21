@@ -13,7 +13,6 @@ import app.revanced.patcher.extensions.typeReference
 import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
-import app.revanced.patcher.patch.resourcePatch
 import app.revanced.util.indexOfFirstInstructionOrThrow
 import app.revanced.util.indexOfFirstInstructionReversedOrThrow
 import com.android.tools.smali.dexlib2.Opcode
@@ -26,36 +25,8 @@ import app.revanced.patches.swiftkey.misc.toolbar.toolbarItemsPatch
 
 private const val EXTENSION_CLASS_DESCRIPTOR = "Lapp/revanced/extension/swiftkey/typing/CapitalIPatch;"
 
-// The toolbar id (90) lives in the extension: CapitalIPatch.TOOLBAR_ITEM_ID.
-
-// The icon shows what typing "i" gives: a serif capital I when on, a lowercase i when off.
-private fun vectorDrawable(pathData: String) =
-    """
-    <?xml version="1.0" encoding="utf-8"?>
-    <vector xmlns:android="http://schemas.android.com/apk/res/android"
-        android:width="24dp"
-        android:height="24dp"
-        android:viewportWidth="24"
-        android:viewportHeight="24">
-        <path
-            android:fillColor="#ffffff"
-            android:pathData="$pathData"/>
-    </vector>
-    """.trimIndent() + "\n"
-
-private val capitalIResourcePatch = resourcePatch {
-    apply {
-        get("res/drawable/revanced_capital_i_on.xml").writeText(
-            vectorDrawable("M7,4h10v2h-4v12h4v2H7v-2h4V6H7z"),
-        )
-        get("res/drawable/revanced_capital_i_off.xml").writeText(
-            vectorDrawable(
-                "M12,3.75a1.75,1.75 0,1 1,0 3.5a1.75,1.75 0,1 1,0 -3.5z" +
-                    "M9.5,9.5h3.5v8.5h2v2h-6v-2h2v-6.5h-1.5z",
-            ),
-        )
-    }
-}
+// The toolbar id (90) lives in the extension: CapitalIPatch.TOOLBAR_ITEM_ID. Its icons are drawn
+// there too (ToolbarIcons), so this patch changes no resources.
 
 private fun Method.findMoveResultRegisterAfterCall(methodName: String): Pair<Int, Int> {
     val callIndex = indexOfFirstInstructionOrThrow {
@@ -74,7 +45,7 @@ val capitalIPatch = bytecodePatch(
 ) {
     compatibleWith("com.touchtype.swiftkey")
 
-    dependsOn(capitalIResourcePatch, toolbarItemsPatch)
+    dependsOn(toolbarItemsPatch)
 
     dependsOn(modsSettingsPatch)
 

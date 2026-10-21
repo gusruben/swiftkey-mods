@@ -6,6 +6,7 @@ import android.util.Log;
 import android.widget.Toast;
 
 import app.revanced.extension.swiftkey.settings.ModSettings;
+import app.revanced.extension.swiftkey.toolbar.ToolbarIcons;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -44,9 +45,6 @@ public final class CapitalIPatch {
     private static final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener = (changed, key) -> {
         if (PREFERENCE_KEY.equals(key)) capitalize = changed.getBoolean(PREFERENCE_KEY, true);
     };
-
-    private static int iconOn;
-    private static int iconOff;
 
     private static Method getInputMethod;
     private static Method getTermMethod;
@@ -161,12 +159,7 @@ public final class CapitalIPatch {
     }
 
     private static int icon() {
-        if (iconOn == 0 && context != null) {
-            iconOn = context.getResources().getIdentifier("revanced_capital_i_on", "drawable", context.getPackageName());
-            iconOff = context.getResources().getIdentifier("revanced_capital_i_off", "drawable", context.getPackageName());
-        }
-        int icon = capitalize ? iconOn : iconOff;
-        return icon != 0 ? icon : android.R.drawable.ic_menu_edit;
+        return capitalize ? ToolbarIcons.CAPITAL_I_ON : ToolbarIcons.CAPITAL_I_OFF;
     }
 
     private static String description() {

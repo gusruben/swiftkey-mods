@@ -11,15 +11,23 @@ import app.revanced.patcher.extensions.instructions
 import app.revanced.patcher.extensions.methodReference
 import app.revanced.patcher.firstClassDef
 import app.revanced.patcher.immutableClassDef
+import app.revanced.patcher.patch.BytecodePatchContext
 import app.revanced.patcher.patch.PatchException
 import app.revanced.patcher.patch.bytecodePatch
-import app.revanced.patcher.patch.resourcePatch
 import app.revanced.patches.swiftkey.misc.settings.modsSettingsPatch
 import app.revanced.patches.swiftkey.misc.toolbar.registerToolbarItem
 import app.revanced.patches.swiftkey.misc.toolbar.toolbarItemsPatch
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.MethodImplementationBuilder
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderArrayPayload
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11n
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction11x
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22c
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction22t
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction31i
+import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction31t
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
@@ -27,6 +35,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.TwoRegisterInstruction
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
+import com.android.tools.smali.dexlib2.immutable.reference.ImmutableTypeReference
 import com.android.tools.smali.dexlib2.iface.reference.StringReference
 import com.android.tools.smali.dexlib2.iface.reference.TypeReference
 
@@ -48,48 +57,60 @@ private const val PREDICTIONS = "Lcom/microsoft/fluency/Predictions;"
 private const val PREDICTION = "Lcom/microsoft/fluency/Prediction;"
 private const val TRAINER = "Lcom/microsoft/fluency/Trainer;"
 
-// Data files the engine reads, bundled in the patches jar under swiftkey/nintype/ and written
-// to the APK's assets/nintype/ (the extension copies them to storage on first start).
-private val NINTYPE_ASSETS = listOf(
+private const val EXTENSION_DATA_DESCRIPTOR = "Lapp/revanced/extension/swiftkey/twothumb/NintypeData;"
+
+// Data files the engine reads, bundled in the patches jar under swiftkey/nintype/, in the order of
+// TwoThumbSwipe.DATA_FILES. They ship in the dex rather than the APK's assets, so the patch needs no
+// resource changes (the extension writes them to storage on first start).
+private val NINTYPE_FILES = listOf(
     "e2e/BOOT.json",
     "e2e/moopad_boot.bin",
     "e2e_search_boot.json",
     "trie/english/english.nbipack",
 )
 
-// Toolbar button icons: two thumbs, filled when two-thumb mode is on, outlined when off.
-private fun thumbsDrawable(pathData: String, evenOdd: Boolean) =
-    """
-    <?xml version="1.0" encoding="utf-8"?>
-    <vector xmlns:android="http://schemas.android.com/apk/res/android"
-        android:width="24dp"
-        android:height="24dp"
-        android:viewportWidth="24"
-        android:viewportHeight="24">
-        <path
-            android:fillColor="#ffffff"
-            ${if (evenOdd) "android:fillType=\"evenOdd\"" else ""}
-            android:pathData="$pathData"/>
-    </vector>
-    """.trimIndent() + "\n"
-
-private const val THUMBS = "M2.5,13a4.5,5.5 0,1 1,9 0a4.5,5.5 0,1 1,-9 0z" +
-    "M12.5,11a4.5,5.5 0,1 1,9 0a4.5,5.5 0,1 1,-9 0z"
-private const val THUMB_HOLES = "M4.5,13a2.5,3.5 0,1 1,5 0a2.5,3.5 0,1 1,-5 0z" +
-    "M14.5,11a2.5,3.5 0,1 1,5 0a2.5,3.5 0,1 1,-5 0z"
-
-private val nintypeAssetsPatch = resourcePatch {
-    apply {
-        get("res/drawable/revanced_two_thumb_on.xml").writeText(thumbsDrawable(THUMBS, false))
-        get("res/drawable/revanced_two_thumb_off.xml").writeText(thumbsDrawable(THUMBS + THUMB_HOLES, true))
-        for (name in NINTYPE_ASSETS) {
-            val stream = object {}.javaClass.classLoader.getResourceAsStream("swiftkey/nintype/$name")
-                ?: throw PatchException("Missing bundled resource swiftkey/nintype/$name")
-            val target = get("assets/nintype/$name", false)
-            target.parentFile.mkdirs()
-            stream.use { input -> target.outputStream().use { input.copyTo(it) } }
-        }
+/**
+ * Replaces the extension's NintypeData.file(I)[B stub with one that builds file i's bytes from an
+ * array payload (fill-array-data), which has no size limit in a dex.
+ */
+private fun BytecodePatchContext.addNintypeData() {
+    val dataClass = firstClassDef(EXTENSION_DATA_DESCRIPTOR)
+    val stub = dataClass.methods.singleOrNull { it.name == "file" }
+        ?: throw PatchException("Could not find NintypeData.file")
+    val files = NINTYPE_FILES.map { name ->
+        object {}.javaClass.classLoader.getResourceAsStream("swiftkey/nintype/$name")?.use { it.readBytes() }
+            ?: throw PatchException("Missing bundled resource swiftkey/nintype/$name")
     }
+    // v0 the array, v1 the index being tested, v2 (p0) the index asked for.
+    val builder = MethodImplementationBuilder(3)
+    files.forEachIndexed { index, bytes ->
+        builder.addInstruction(BuilderInstruction11n(Opcode.CONST_4, 1, index))
+        builder.addInstruction(BuilderInstruction22t(Opcode.IF_NE, 2, 1, builder.getLabel("next_$index")))
+        builder.addInstruction(BuilderInstruction31i(Opcode.CONST, 0, bytes.size))
+        builder.addInstruction(BuilderInstruction22c(Opcode.NEW_ARRAY, 0, 0, ImmutableTypeReference("[B")))
+        builder.addInstruction(BuilderInstruction31t(Opcode.FILL_ARRAY_DATA, 0, builder.getLabel("data_$index")))
+        builder.addInstruction(BuilderInstruction11x(Opcode.RETURN_OBJECT, 0))
+        builder.addLabel("next_$index")
+    }
+    builder.addInstruction(BuilderInstruction11n(Opcode.CONST_4, 0, 0))
+    builder.addInstruction(BuilderInstruction11x(Opcode.RETURN_OBJECT, 0))
+    files.forEachIndexed { index, bytes ->
+        builder.addLabel("data_$index")
+        builder.addInstruction(BuilderArrayPayload(1, bytes.map { it as Number }))
+    }
+    dataClass.methods.remove(stub)
+    dataClass.methods.add(
+        ImmutableMethod(
+            dataClass.type,
+            stub.name,
+            stub.parameters,
+            stub.returnType,
+            stub.accessFlags,
+            null,
+            null,
+            builder.methodImplementation,
+        ).toMutable(),
+    )
 }
 
 private fun Instruction.isInvoke() = opcode == Opcode.INVOKE_INTERFACE || opcode == Opcode.INVOKE_VIRTUAL
@@ -105,11 +126,13 @@ val twoThumbSwipePatch = bytecodePatch(
 ) {
     compatibleWith("com.touchtype.swiftkey")
 
-    dependsOn(nintypeAssetsPatch, modsSettingsPatch, toolbarItemsPatch)
+    dependsOn(modsSettingsPatch, toolbarItemsPatch)
 
     extendWith("extensions/swiftkey.rve")
 
     apply {
+        addNintypeData()
+
         // 1. Start: load the engine in the background.
         traceKeyboardServiceOnCreateMethod.addInstruction(
             0,

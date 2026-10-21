@@ -2,7 +2,6 @@ package app.revanced.extension.swiftkey.twothumb;
 
 import android.content.Context;
 import android.content.pm.PackageInfo;
-import android.content.res.AssetManager;
 import android.graphics.RectF;
 import android.inputmethodservice.InputMethodService;
 import android.os.Handler;
@@ -17,7 +16,6 @@ import android.view.inputmethod.InputConnection;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.List;
@@ -65,8 +63,9 @@ public final class TwoThumbSwipe {
         CharSequence patch_getTwoThumbKeyLabel(Object key);
     }
 
-    private static final String ASSET_DIR = "nintype";
-    private static final String[] ASSETS = {
+    private static final String DATA_DIR = "nintype";
+    // Same order as the patch's file list: NintypeData.file(i) is DATA_FILES[i].
+    private static final String[] DATA_FILES = {
             "e2e/BOOT.json", "e2e/moopad_boot.bin", "e2e_search_boot.json", "trie/english/english.nbipack",
     };
 
@@ -123,7 +122,7 @@ public final class TwoThumbSwipe {
                     : "loaded from " + learned));
             long t2 = SystemClock.uptimeMillis();
             Runtime rt = Runtime.getRuntime();
-            if (ModSettings.debug()) Log.i(TAG, "two-thumb: engine loaded (assets " + (t1 - t0) + " ms, load " + (t2 - t1) + " ms, heap "
+            if (ModSettings.debug()) Log.i(TAG, "two-thumb: engine loaded (data " + (t1 - t0) + " ms, load " + (t2 - t1) + " ms, heap "
                     + (rt.totalMemory() - rt.freeMemory()) / (1024 * 1024) + " MB)");
             decoder = d;
         } catch (Throwable t) {
@@ -131,24 +130,23 @@ public final class TwoThumbSwipe {
         }
     }
 
-    /** Copies the engine data out of the APK's assets once per APK version (the engine reads files). */
+    /** Writes the engine data out of the dex once per APK version (the engine reads files). */
     private static File extractAssets(Context context) throws Exception {
         Context storage = context.createDeviceProtectedStorageContext();
         PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
-        File base = new File(storage.getNoBackupFilesDir(), ASSET_DIR);
+        File base = new File(storage.getNoBackupFilesDir(), DATA_DIR);
         File root = new File(base, Long.toString(info.lastUpdateTime));
         File done = new File(root, ".done");
         if (done.isFile()) return root;
         deleteRecursively(base);
-        AssetManager assets = context.getAssets();
-        byte[] buffer = new byte[64 * 1024];
-        for (String name : ASSETS) {
-            File out = new File(root, name);
+        for (int i = 0; i < DATA_FILES.length; i++) {
+            byte[] data = NintypeData.file(i);
+            if (data == null) throw new IllegalStateException("Missing engine data " + DATA_FILES[i]);
+            File out = new File(root, DATA_FILES[i]);
             //noinspection ResultOfMethodCallIgnored
             out.getParentFile().mkdirs();
-            try (InputStream in = assets.open(ASSET_DIR + "/" + name); OutputStream os = new FileOutputStream(out)) {
-                int n;
-                while ((n = in.read(buffer)) > 0) os.write(buffer, 0, n);
+            try (OutputStream os = new FileOutputStream(out)) {
+                os.write(data);
             }
         }
         //noinspection ResultOfMethodCallIgnored

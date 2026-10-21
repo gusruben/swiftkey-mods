@@ -7,6 +7,7 @@ import app.revanced.patcher.extensions.fieldReference
 import app.revanced.patcher.extensions.getInstruction
 import app.revanced.patcher.extensions.instructions
 import app.revanced.patcher.extensions.methodReference
+import app.revanced.patcher.extensions.replaceInstruction
 import app.revanced.patcher.extensions.stringReference
 import app.revanced.patcher.extensions.typeReference
 import app.revanced.patcher.firstClassDef
@@ -19,9 +20,13 @@ import app.revanced.util.indexOfFirstInstructionOrThrow
 import app.revanced.util.indexOfFirstInstructionReversedOrThrow
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.instruction.Instruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
+import com.android.tools.smali.dexlib2.util.MethodUtil
 
 private const val EXTENSION_CLASS_DESCRIPTOR = "Lapp/revanced/extension/swiftkey/toolbar/ToolbarItems;"
+private const val EXTENSION_ICONS_DESCRIPTOR = "Lapp/revanced/extension/swiftkey/toolbar/ToolbarIcons;"
 
 /**
  * Lets the mods add toolbar buttons: the toolbar item factory asks ToolbarItems.create for every id
@@ -34,19 +39,19 @@ internal val toolbarItemsPatch = bytecodePatch(
     extendWith("extensions/swiftkey.rve")
 
     apply {
-        toolbarItemFactoryMethod.apply {
-            // The on/off item class (autocorrect, incognito): 12 constructor parameters, see
-            // ToolbarItems.toggleItem. Built reflectively, so the extension never names it.
-            val toggleItemClass = instructions.firstNotNullOfOrNull { instruction ->
-                instruction.methodReference?.takeIf { reference ->
-                    val parameters = reference.parameterTypes.map(CharSequence::toString)
-                    reference.name == "<init>" && parameters.size == 12 && parameters[0] == "I" &&
-                        parameters[2] == "Ljava/util/function/Supplier;" &&
-                        parameters[9] == "Ljava/util/Collection;" &&
-                        parameters[11] == "Ljava/util/function/Supplier;"
-                }?.definingClass
-            } ?: throw PatchException("Could not find the toggle toolbar item class")
+        // The on/off item class (autocorrect, incognito): 12 constructor parameters, see
+        // ToolbarItems.toggleItem. Built reflectively, so the extension never names it.
+        val toggleItemClass = toolbarItemFactoryMethod.instructions.firstNotNullOfOrNull { instruction ->
+            instruction.methodReference?.takeIf { reference ->
+                val parameters = reference.parameterTypes.map(CharSequence::toString)
+                reference.name == "<init>" && parameters.size == 12 && parameters[0] == "I" &&
+                    parameters[2] == "Ljava/util/function/Supplier;" &&
+                    parameters[9] == "Ljava/util/Collection;" &&
+                    parameters[11] == "Ljava/util/function/Supplier;"
+            }?.definingClass
+        } ?: throw PatchException("Could not find the toggle toolbar item class")
 
+        toolbarItemFactoryMethod.apply {
             val messageIndex = indexOfFirstInstructionOrThrow {
                 stringReference?.string == "No toolbar item for toolbar item type "
             }
@@ -72,6 +77,65 @@ internal val toolbarItemsPatch = bytecodePatch(
                     return-object v$freeRegister
                 """,
                 ExternalLabel("not_ours", getInstruction(throwStartIndex)),
+            )
+        }
+
+        hookToolbarIcons(toggleItemClass)
+    }
+}
+
+/**
+ * The mods' buttons draw their icons in code (ToolbarIcons), so they need no resources. An item's
+ * icon is a resource id: the item interface's int getter other than getItemId. Everywhere SwiftKey
+ * reads it, the id goes straight into Context.getDrawable or ImageView.setImageResource (the bar,
+ * the toggle's redraw, the expanded grid, the customiser); each of those calls goes through
+ * ToolbarIcons instead, which draws the mods' ids and passes every other id on unchanged.
+ */
+private fun BytecodePatchContext.hookToolbarIcons(toggleItemClass: String) {
+    val itemInterface = classDefs.firstOrNull { it.type == toggleItemClass }?.interfaces?.singleOrNull()
+        ?: throw PatchException("Expected one interface on $toggleItemClass")
+    val iconGetter = classDefs.firstOrNull { it.type == itemInterface }?.methods?.singleOrNull {
+        it.returnType == "I" && it.parameterTypes.isEmpty() && it.name != "getItemId"
+    }?.name ?: throw PatchException("Could not find the toolbar item icon getter in $itemInterface")
+
+    fun Instruction.isIconCall() = methodReference?.let { reference ->
+        reference.name == iconGetter && reference.returnType == "I" && reference.parameterTypes.isEmpty() &&
+            (reference.definingClass == itemInterface || reference.definingClass == toggleItemClass)
+    } == true
+
+    fun MethodReference.hookFor() = when {
+        name == "setImageResource" && returnType == "V" && parameterTypes.map(CharSequence::toString) == listOf("I") ->
+            "setImageResource(Landroid/widget/ImageView;I)V"
+        name == "getDrawable" && definingClass == "Landroid/content/Context;" &&
+            parameterTypes.map(CharSequence::toString) == listOf("I") ->
+            "getDrawable(Landroid/content/Context;I)Landroid/graphics/drawable/Drawable;"
+        else -> null
+    }
+
+    val readers = classDefs.flatMap { classDef ->
+        classDef.methods.filter { method ->
+            method.implementation?.instructions?.any { it.isIconCall() } == true
+        }.map { classDef.type to it }
+    }
+    if (readers.isEmpty()) throw PatchException("Could not find where toolbar icons are loaded")
+
+    readers.forEach { (type, reader) ->
+        val method = firstClassDef(type).methods.first { MethodUtil.methodSignaturesMatch(it, reader) }
+        method.instructions.withIndex().filter { (_, instruction) -> instruction.isIconCall() }.forEach { (index, _) ->
+            val moveResult = method.getInstruction(index + 1)
+            if (moveResult.opcode != Opcode.MOVE_RESULT) throw PatchException("No icon id result in $method")
+            val idRegister = (moveResult as OneRegisterInstruction).registerA
+            // The id's use follows within a few instructions (after a cast or a view lookup).
+            val useIndex = (index + 2 until minOf(index + 10, method.instructions.size)).firstOrNull { useIndex ->
+                val use = method.getInstruction(useIndex)
+                use.opcode == Opcode.INVOKE_VIRTUAL && use.methodReference?.hookFor() != null &&
+                    (use as FiveRegisterInstruction).registerCount == 2 && use.registerD == idRegister
+            } ?: throw PatchException("Unhandled toolbar icon use in $method")
+            val use = method.getInstruction<FiveRegisterInstruction>(useIndex)
+            method.replaceInstruction(
+                useIndex,
+                "invoke-static { v${use.registerC}, v${use.registerD} }, " +
+                    "$EXTENSION_ICONS_DESCRIPTOR->${method.getInstruction(useIndex).methodReference!!.hookFor()}",
             )
         }
     }
