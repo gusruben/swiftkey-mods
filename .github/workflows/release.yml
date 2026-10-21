@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        env:
+          # ReVanced's gradle plugin is on GitHub Packages (maven.pkg.github.com/revanced), which needs a token
+          # even for public packages. The built-in GITHUB_TOKEN is used by default. If the build fails with a
+          # 401 or 403 resolving app.revanced.patches, add a classic personal access token with read:packages
+          # as the repo secret GH_PACKAGES_TOKEN and it is used instead.
+          ORG_GRADLE_PROJECT_githubPackagesUsername: ${{ github.actor }}
+          ORG_GRADLE_PROJECT_githubPackagesPassword: ${{ secrets.GH_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
+        run: ./gradlew :patches:buildAndroid --no-daemon -Pversion="${GITHUB_REF_NAME#v}"
+
+      # Lets revanced-cli verify the bundle with --attestation and --repository instead of --bypass-verification.
+      - name: Attest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: patches/build/libs/patches-*.rvp
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: patches/build/libs/patches-*.rvp
+          generate_release_notes: true

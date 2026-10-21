@@ -1,0 +1,19 @@
+{
+ "clock_us": 1500000001680000,
+ "gts": "0x3ffae147ae147ae2",
+ "prevGts": "0x3ffae147ae147ae2",
+ "ld": "0x3f90624dd2f1aa00",
+ "ldf": "0x3feeb851eb851ec0",
+ "recordtime": "0x3ffae147ae147ae2",
+ "recorddtf": "0x3feeb851eb851ec0",
+ "recorddts": "0x3f90624dd2f1aa00",
+ "mootouch_counter": 1,
+ "liveTouches": 0,
+ "sittingHead": true,
+ "moopad_29440": 0,
+ "moopad_2991c": 1,
+ "roenScale": "0x3f44ec4f",
+ "slideDisp": 20,
+ "emojiExpanderXnl": 0,
+ "moopadBytes": 212992
+}

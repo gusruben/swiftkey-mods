@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+!src/**/build/
+local.properties
+gradle-app.setting
+.kotlin/
+
+# Built and signed outputs
+*.rvp
+*.apk
+*.aab
+*.keystore
+*.jks
+*.bks
+libs/*.jar
+
+# Gradle credentials (use ~/.gradle/gradle.properties instead)
+gradle-local.properties
+
+# IDE and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+out/
+
+# Logs and scratch
+*.log
+hs_err_pid*
+claude-workspace/
