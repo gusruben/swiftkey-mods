@@ -42,8 +42,24 @@ jobs:
         with:
           subject-path: patches/build/libs/patches-*.rvp
 
+      # ReVanced Manager takes a JSON endpoint as a patch source (ReVanced API asset format), not a repo URL.
+      # Add https://github.com/<owner>/<repo>/releases/latest/download/patches-bundle.json to Manager.
+      - name: Bundle info for ReVanced Manager
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cat > patches-bundle.json <<JSON
+          {
+            "version": "${GITHUB_REF_NAME}",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%S)",
+            "description": "SwiftKey Mods ${GITHUB_REF_NAME}",
+            "download_url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/patches-${version}.rvp"
+          }
+          JSON
+
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: patches/build/libs/patches-*.rvp
+          files: |
+            patches/build/libs/patches-*.rvp
+            patches-bundle.json
           generate_release_notes: true

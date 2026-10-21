@@ -9,7 +9,7 @@ https://github.com/user-attachments/assets/d857e328-c3e5-49da-bb52-4c155ee77e9a
 ## Install
 
 1. Download the SwiftKey 9.13.17.6 APK from a site like [APKMirror](https://www.apkmirror.com/apk/swiftkey/swiftkey-keyboard/microsoft-swiftkey-ai-keyboard-9-13-17-6-release/)
-2. In ReVanced Manager, add this repo as a patch source.
+2. In ReVanced Manager, add `https://github.com/gusruben/swiftkey-mods/releases/latest/download/patches-bundle.json` as a patch source.
 3. Patch the APK and install it.
 4. Find the settings in SwiftKey's settings under Mods.
 
